@@ -11,12 +11,27 @@ mov es, ax
 mov ss, ax
 mov ds, ax
 mov sp, 0x7c00 ;栈寄存器
-mov ax, 0xb800 ;0xb800是文本显示器的内存区域
-mov ds, ax ;数据段
-mov byte [0], 'H'
+
+xchg bx, bx ;bochs的魔数断点  调整bochsrc中的magic_break 为1
+mov si,booting
+call print 
 
 ;阻塞
 jmp $
+
+print:
+    mov ah, 0x0e
+.next:
+    mov al, [si]
+    cmp al, 0
+    jz .done
+    int 0x10
+    inc si
+    jmp .next
+.done:
+    ret
+booting:
+    db "Booting Onix...", 10, 13, 0 ;10 ASCII-> \n 换行 13 ASCII-> \r将光标移到开头 0->字符串结束
 
 
 ;其余字节用0填充
