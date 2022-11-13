@@ -12,14 +12,179 @@ mov ss, ax
 mov ds, ax
 mov sp, 0x7c00 ;栈寄存器
 
-xchg bx, bx ;bochs的魔数断点  调整bochsrc中的magic_break 为1
 mov si,booting
 call print 
+xchg bx, bx ;bochs的魔数断点  调整bochsrc中的magic_break 为1
+
+;读硬盘 从 ecx 扇区开始, 读取 bl 个扇区到 edi 的位置
+mov edi, 0x1000 ;读取的目标内存
+
+mov ecx, 0 ;起始扇区
+mov bl, 1 ;扇区数量
+
+call read_disk
+xchg bx, bx
+
+;写硬盘 将从edi开始bl个扇区大小的数据写入第ecx个扇区
+mov edi, 0x1000 ;读取的目标内存
+
+mov ecx, 2 ;起始扇区
+mov bl, 1 ;扇区数量
+
+
+
 
 ;阻塞
 jmp $
 
-print:
+read_disk: ;读硬盘
+    ; 设置读写扇区的数量
+    mov dx, 0x1f2  
+    mov al, bl 
+    out dx, al
+
+    ;设置起始扇区的低8位
+    inc dx ;0x1F3
+    shr ecx, 8
+    mov al, cl 
+    out dx, al
+
+    ;设置起始扇区的中8位
+    inc dx ;0x1F4
+    shr ecx, 8
+    mov al, cl 
+    out dx, al
+
+    ;设置起始扇区的高8位
+    inc dx ;0x1F5
+    shr ecx, 8
+    mov al, cl 
+    out dx, al 
+
+    ; 硬盘为主盘  LBA模式
+    inc dx ; 0x1F6 
+    shr ecx, 8
+    and ecx, 0b0000_1111 ;将高四位设置为0
+    mov al, 0b1110_0000
+    or al, cl 
+    out dx, al 
+
+    ;设置为 读硬盘操作
+    inc dx ;0x1F7
+    mov al, 0x20
+    out dx, al
+
+    xor ecx, ecx ;异或 将ecx清空
+    mov cl, bl ;获取读写扇区的数量
+
+    .read:
+        push cx
+        call .wait ;等待数据准备完毕
+        call .reads ; 读取硬盘
+        pop cx
+        loop .read
+    ret
+
+    .wait:
+        mov dx, 0x1F7
+        .check:
+            in al, dx 
+            jmp $ + 2  ;延迟
+            jmp $ + 2
+            jmp $ + 2
+            and al, 0b1000_1000
+            cmp al, 0b0000_1000
+            jnz .check
+        ret
+    .reads:
+        mov dx, 0x1f0
+        mov cx, 256 ;一个扇区256个字
+        .readw:
+                in ax, dx
+                jmp $ + 2
+                jmp $ + 2
+                jmp $ + 2
+                mov [edi], ax
+                add edi, 2
+                loop .readw
+        ret
+            
+;写硬盘 
+write_disk: ;写硬盘
+    ; 设置读写扇区的数量
+    mov dx, 0x1f2  
+    mov al, bl 
+    out dx, al
+
+    ;设置起始扇区的低8位
+    inc dx ;0x1F3
+    shr ecx, 8
+    mov al, cl 
+    out dx, al
+
+    ;设置起始扇区的中8位
+    inc dx ;0x1F4
+    shr ecx, 8
+    mov al, cl 
+    out dx, al
+
+    ;设置起始扇区的高8位
+    inc dx ;0x1F5
+    shr ecx, 8
+    mov al, cl 
+    out dx, al 
+
+    ; 硬盘为主盘  LBA模式
+    inc dx ; 0x1F6 
+    shr ecx, 8
+    and ecx, 0b0000_1111 ;将高四位设置为0
+    mov al, 0b1110_0000
+    or al, cl 
+    out dx, al 
+
+    ;设置为 写硬盘操作
+    inc dx ;0x1F7
+    mov al, 0x30
+    out dx, al
+
+    xor ecx, ecx ;异或 将ecx清空
+    mov cl, bl ;获取读写扇区的数量
+
+    .write:
+        push cx
+        call .writes ; 写硬盘
+        call .wait ;等待硬盘不繁忙
+        pop cx
+        loop .write
+    ret
+
+    .wait:
+        mov dx, 0x1f7
+        .check:
+            in al, dx 
+            jmp $ + 2  ;延迟
+            jmp $ + 2
+            jmp $ + 2
+            and al, 0b1000_0000
+            cmp al, 0b0000_0000
+            jnz .check
+        ret
+    .writes:
+        mov dx, 0x1f0
+        mov cx, 256 ;一个扇区256个字
+        .writew:
+                mov ax, [edi]
+                out dx, ax
+                jmp $ + 2
+                jmp $ + 2
+                jmp $ + 2
+                add edi, 2
+                loop .writew
+        ret
+            
+
+
+print:  ; 在屏幕上输出字符
     mov ah, 0x0e
 .next:
     mov al, [si]
@@ -31,7 +196,7 @@ print:
 .done:
     ret
 booting:
-    db "Booting Onix...", 10, 13, 0 ;10 ASCII-> \n 换行 13 ASCII-> \r将光标移到开头 0->字符串结束
+    db "Booting Onix...", 10, 0 ;10 ASCII-> \n 换行 13 ASCII-> \r将光标移到开头 0->字符串结束
 
 
 ;其余字节用0填充
